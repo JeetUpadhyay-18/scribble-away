@@ -1,0 +1,722 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Infinite Notebook Webapp</title>
+<style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body, html {
+        width: 100%; height: 100%; overflow: hidden;
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif;
+        background-color: #ffffff;
+        -webkit-font-smoothing: antialiased;
+    }
+
+    /* Apple-Inspired Glassmorphic Floating Toolbar */
+    #toolbar {
+        position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+        background: rgba(255, 255, 255, 0.8);
+        padding: 6px 12px; border-radius: 50px;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05),
+                    0 10px 30px rgba(0, 0, 0, 0.08),
+                    inset 0 0 0 1px rgba(255, 255, 255, 0.4);
+        display: flex; align-items: center; gap: 8px; z-index: 1000;
+        backdrop-filter: blur(24px) saturate(180%);
+        -webkit-backdrop-filter: blur(24px) saturate(180%);
+        user-select: none;
+        contain: layout style;
+        will-change: transform;
+    }
+
+    .tool-group { position: relative; display: flex; align-items: center; }
+
+    .btn {
+        background: none; border: none; padding: 8px 14px; border-radius: 40px;
+        cursor: pointer; font-size: 14px; font-weight: 500; color: #1d1d1f;
+        transition: background-color 0.2s cubic-bezier(0.25, 1, 0.5, 1), transform 0.15s cubic-bezier(0.25, 1, 0.5, 1);
+        display: flex; align-items: center; gap: 6px;
+    }
+    .btn:hover { background-color: rgba(0, 0, 0, 0.04); }
+    .btn:active { transform: scale(0.96); }
+    .btn.active { background-color: rgba(0, 0, 0, 0.06); font-weight: 600; }
+
+    .btn-clear {
+        color: #ff3b30; font-weight: 500;
+        border-left: 1px solid rgba(0, 0, 0, 0.08); border-radius: 0;
+        padding-left: 12px; margin-left: 4px;
+    }
+    .btn-clear:hover { background-color: rgba(255, 59, 48, 0.08); border-radius: 40px; }
+
+    .color-picker {
+        display: flex; align-items: center; gap: 6px;
+        margin-left: 4px; padding-right: 6px;
+        border-right: 1px solid rgba(0, 0, 0, 0.08);
+    }
+
+    .color-dot {
+        width: 14px; height: 14px; border-radius: 50%;
+        cursor: pointer; border: 1px solid transparent;
+        transition: transform 0.15s ease;
+    }
+    .color-dot:hover { transform: scale(1.2); }
+    .color-dot.active { border-color: #ffffff; transform: scale(1.25); outline: 1.5px solid #1d1d1f; }
+    .color-red { background-color: #ff3b30; }
+    .color-black { background-color: #1c1c1e; }
+    .color-blue { background-color: #007aff; }
+
+    .sub-options {
+        position: absolute; top: 45px; left: 50%; transform: translateX(-50%);
+        background: rgba(255, 255, 255, 0.92);
+        padding: 8px 12px; border-radius: 20px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.08), inset 0 0 0 1px rgba(255,255,255,0.5);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        display: flex; align-items: center; gap: 12px;
+        opacity: 0; visibility: hidden; pointer-events: none;
+        transition: opacity 0.2s ease, visibility 0.2s ease;
+        white-space: nowrap;
+    }
+    .btn.active ~ .sub-options { opacity: 1; visibility: visible; pointer-events: auto; }
+
+    .size-dot {
+        background-color: #8e8e93; border-radius: 50%;
+        cursor: pointer; border: 2px solid transparent;
+        transition: background-color 0.2s ease, transform 0.2s ease;
+    }
+    .size-dot:hover { background-color: #1d1d1f; transform: scale(1.15); }
+    .size-dot.active { background-color: #1d1d1f; transform: scale(1.1); }
+    .size-s { width: 6px; height: 6px; }
+    .size-m { width: 12px; height: 12px; }
+    .size-b { width: 18px; height: 18px; }
+
+    /* Pressure sensitivity toggle */
+    .pressure-toggle-group {
+        display: flex; align-items: center; gap: 6px;
+        padding-left: 10px; border-left: 1px solid rgba(0, 0, 0, 0.08); margin-left: 2px;
+    }
+    .pressure-label { font-size: 12px; color: #6e6e73; font-weight: 500; }
+    .switch {
+        width: 30px; height: 18px; border-radius: 10px;
+        background: #d1d1d6; position: relative; cursor: pointer;
+        transition: background-color 0.2s ease; flex-shrink: 0;
+    }
+    .switch.active { background: #34c759; }
+    .switch-knob {
+        position: absolute; top: 2px; left: 2px; width: 14px; height: 14px;
+        border-radius: 50%; background: #ffffff; box-shadow: 0 1px 2px rgba(0,0,0,0.3);
+        transition: transform 0.2s cubic-bezier(0.25, 1, 0.5, 1);
+    }
+    .switch.active .switch-knob { transform: translateX(12px); }
+
+    /* Infinite Canvas Layout */
+    #canvas-container {
+        width: 100%; height: 100%; position: absolute; top: 0; left: 0;
+        background-color: #ffffff;
+        background-image:
+            linear-gradient(to right, rgba(0, 0, 0, 0.04) 1px, transparent 1px),
+            linear-gradient(to bottom, rgba(0, 0, 0, 0.04) 1px, transparent 1px);
+        background-size: 34px 34px;
+        cursor: none;
+        touch-action: none;
+    }
+
+    canvas { display: block; position: absolute; top: 0; left: 0; touch-action: none; }
+
+    #brush-preview {
+        position: fixed; top: 0; left: 0; pointer-events: none; z-index: 10000;
+        border-radius: 50%; display: none;
+        box-shadow: 0 0 0 1px rgba(255,255,255,0.8);
+        will-change: transform;
+    }
+
+    .text-input-box {
+        position: absolute; top: 0; left: 0;
+        border: 1px dashed rgba(0, 122, 255, 0.2);
+        background: transparent;
+        font-size: 16px; line-height: 1.45; color: #1d1d1f;
+        padding: 6px 10px; outline: none; min-width: 140px;
+        caret-color: #007aff; border-radius: 6px; z-index: 999;
+        transform-origin: top left;
+        will-change: transform;
+    }
+    .text-input-box:focus { border-color: #007aff; background-color: rgba(0, 122, 255, 0.02); }
+
+    #zoom-indicator {
+        position: fixed; bottom: 20px; right: 20px;
+        background: rgba(255, 255, 255, 0.8);
+        backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+        padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: 500;
+        color: #1d1d1f; box-shadow: 0 4px 15px rgba(0,0,0,0.08), inset 0 0 0 1px rgba(255,255,255,0.4);
+        cursor: pointer; user-select: none; z-index: 999; transition: opacity 0.2s ease;
+    }
+
+    #save-indicator {
+        position: fixed; bottom: 20px; left: 20px;
+        font-size: 12px; color: #8e8e93; font-weight: 500;
+        opacity: 0; transition: opacity 0.4s ease; z-index: 999; user-select: none;
+    }
+    #save-indicator.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<div id="brush-preview"></div>
+
+<div id="toolbar">
+    <div class="tool-group">
+        <button class="btn active" id="tool-ink">✏️ Ink</button>
+        <div class="color-picker">
+            <div class="color-dot color-black active" data-color="#1c1c1e"></div>
+            <div class="color-dot color-red" data-color="#ff3b30"></div>
+            <div class="color-dot color-blue" data-color="#007aff"></div>
+        </div>
+        <div class="sub-options" id="ink-options">
+            <div class="size-dot size-s active" data-size="2.5"></div>
+            <div class="size-dot size-m" data-size="6"></div>
+            <div class="size-dot size-b" data-size="14"></div>
+            <div class="pressure-toggle-group">
+                <span class="pressure-label">Pressure</span>
+                <div class="switch" id="pressure-switch"><div class="switch-knob"></div></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="tool-group">
+        <button class="btn" id="tool-eraser">🧽 Eraser</button>
+        <div class="sub-options" id="eraser-options">
+            <div class="size-dot size-s active" data-size="20"></div>
+            <div class="size-dot size-m" data-size="45"></div>
+            <div class="size-dot size-b" data-size="80"></div>
+        </div>
+    </div>
+
+    <div class="tool-group">
+        <button class="btn" id="tool-text">🔤 Text</button>
+    </div>
+
+    <button class="btn btn-clear" id="action-clear">Clear All</button>
+</div>
+
+<div id="canvas-container">
+    <canvas id="paintCanvas"></canvas>
+</div>
+
+<div id="zoom-indicator" title="Click to reset view">100%</div>
+<div id="save-indicator">Saved</div>
+
+<script>
+(function () {
+    'use strict';
+
+    const canvas = document.getElementById('paintCanvas');
+    const ctx = canvas.getContext('2d', { desynchronized: true });
+    const container = document.getElementById('canvas-container');
+    const brushPreview = document.getElementById('brush-preview');
+    const zoomIndicator = document.getElementById('zoom-indicator');
+    const saveIndicator = document.getElementById('save-indicator');
+
+    let dpr = window.devicePixelRatio || 1;
+
+    // ---------- World / View state ----------
+    // screen = world * view.scale + view.pan  (pan stored in CSS-pixel/screen terms)
+    const view = { x: 0, y: 0, scale: 1 };
+    const MIN_SCALE = 0.2, MAX_SCALE = 5;
+
+    // ---------- Document model (vector, world-space) ----------
+    // Storing strokes as vectors -- not baked pixels -- is what makes pan/zoom/resize
+    // non-destructive and is the fix for the "panning desyncs ink from grid" /
+    // "resize wipes the page" issues identified in review.
+    let strokes = [];      // { id, tool, color, baseWidth, pressureEnabled, points:[{x,y,p}] }
+    let textNotes = [];    // { id, x, y, fontSize, el }
+    let activeStroke = null;
+
+    let currentTool = 'ink';
+    let inkColor = '#1c1c1e';
+    let inkSize = 2.5;
+    let eraserSize = 20;
+    let pressureEnabled = false;
+
+    let idCounter = 0;
+    function genId() { idCounter += 1; return 'id' + idCounter + '_' + Date.now().toString(36); }
+
+    // ---------- Coordinate transforms ----------
+    function screenToWorld(sx, sy) {
+        return { x: (sx - view.x) / view.scale, y: (sy - view.y) / view.scale };
+    }
+    function worldToScreen(wx, wy) {
+        return { x: wx * view.scale + view.x, y: wy * view.scale + view.y };
+    }
+
+    // ---------- Canvas / DPR setup (fixes blur on Retina + resize-wipes-content) ----------
+    function setupCanvas() {
+        dpr = window.devicePixelRatio || 1;
+        canvas.width = Math.round(window.innerWidth * dpr);
+        canvas.height = Math.round(window.innerHeight * dpr);
+        canvas.style.width = window.innerWidth + 'px';
+        canvas.style.height = window.innerHeight + 'px';
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        scheduleRender(); // content lives in `strokes`, so a resize just re-renders it
+    }
+    window.addEventListener('resize', setupCanvas);
+
+    // ---------- RAF-batched render scheduling ----------
+    let renderQueued = false;
+    function scheduleRender() {
+        if (renderQueued) return;
+        renderQueued = true;
+        requestAnimationFrame(() => { renderQueued = false; renderAll(); });
+    }
+
+    function widthForPressure(base, p) {
+        const t = Math.max(0.15, Math.min(1.5, p));
+        return base * (0.5 + t * 0.9);
+    }
+
+    // Smooth quadratic spline through world-space points. Caller must already have
+    // set the canvas transform (dpr * view.scale, with view.x/y as translation).
+    function strokeSmoothPath(points, lineWidth) {
+        if (points.length < 2) return;
+        ctx.lineWidth = lineWidth;
+        ctx.beginPath();
+        ctx.moveTo(points[0].x, points[0].y); // fixed: was `pointsList.x` (undefined) in the original
+        for (let i = 1; i < points.length - 1; i++) {
+            const xc = (points[i].x + points[i + 1].x) / 2;
+            const yc = (points[i].y + points[i + 1].y) / 2;
+            ctx.quadraticCurveTo(points[i].x, points[i].y, xc, yc);
+        }
+        const last = points[points.length - 1];
+        ctx.lineTo(last.x, last.y);
+        ctx.stroke();
+    }
+
+    // Full stroke render (used for pan/zoom/resize/load -- entire scene redraw)
+    function drawStrokeFull(stroke) {
+        ctx.globalCompositeOperation = stroke.tool === 'eraser' ? 'destination-out' : 'source-over';
+        ctx.strokeStyle = stroke.color || '#000000';
+
+        if (!stroke.pressureEnabled || stroke.tool === 'eraser') {
+            // Plain mode: one continuous path, one stroke() call -- cheap and smooth.
+            strokeSmoothPath(stroke.points, stroke.baseWidth);
+            return;
+        }
+        // Pressure mode: width must vary along the stroke, so draw short
+        // pairwise segments with interpolated width. Costs more draw calls,
+        // which is the trade-off for tapered, pencil-like lines.
+        const pts = stroke.points;
+        for (let i = 0; i < pts.length - 1; i++) {
+            const p0 = pts[i], p1 = pts[i + 1];
+            ctx.lineWidth = widthForPressure(stroke.baseWidth, (p0.p + p1.p) / 2);
+            ctx.beginPath();
+            ctx.moveTo(p0.x, p0.y);
+            ctx.lineTo(p1.x, p1.y);
+            ctx.stroke();
+        }
+    }
+
+    // Cheap incremental draw of only the newest segment of the in-progress stroke.
+    function drawActiveSegment() {
+        if (!activeStroke) return;
+        const pts = activeStroke.points;
+        if (pts.length < 2) return;
+
+        ctx.globalCompositeOperation = activeStroke.tool === 'eraser' ? 'destination-out' : 'source-over';
+        ctx.strokeStyle = activeStroke.color || '#000000';
+
+        const tail = pts.slice(Math.max(0, pts.length - 3));
+
+        if (!activeStroke.pressureEnabled || activeStroke.tool === 'eraser') {
+            strokeSmoothPath(tail, activeStroke.baseWidth);
+        } else {
+            const p0 = tail[tail.length - 2], p1 = tail[tail.length - 1];
+            ctx.lineWidth = widthForPressure(activeStroke.baseWidth, (p0.p + p1.p) / 2);
+            ctx.beginPath();
+            ctx.moveTo(p0.x, p0.y);
+            ctx.lineTo(p1.x, p1.y);
+            ctx.stroke();
+        }
+    }
+
+    function renderAll() {
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, canvas.width / dpr, canvas.height / dpr);
+
+        ctx.setTransform(dpr * view.scale, 0, 0, dpr * view.scale, dpr * view.x, dpr * view.y);
+        for (const stroke of strokes) {
+            if (stroke === activeStroke) continue;
+            drawStrokeFull(stroke);
+        }
+        if (activeStroke) drawStrokeFull(activeStroke);
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+        // Keep the dot grid and text notes glued to the same transform as the ink.
+        container.style.backgroundSize = `${34 * view.scale}px ${34 * view.scale}px`;
+        container.style.backgroundPosition = `${view.x}px ${view.y}px`;
+        updateTextNotePositions();
+        updateZoomIndicator();
+        updateBrushPreview();
+    }
+
+    function updateZoomIndicator() {
+        zoomIndicator.textContent = Math.round(view.scale * 100) + '%';
+    }
+    zoomIndicator.addEventListener('click', () => {
+        view.scale = 1; view.x = 0; view.y = 0;
+        scheduleRender(); scheduleSave();
+    });
+
+    // ---------- Persistence (auto-save to localStorage) ----------
+    const STORAGE_KEY = 'apple-notebook-state-v1';
+    let saveTimer = null;
+    function scheduleSave() {
+        if (saveTimer) clearTimeout(saveTimer);
+        saveTimer = setTimeout(saveState, 600);
+    }
+    function saveState() {
+        try {
+            const payload = {
+                strokes,
+                textNotes: textNotes.map(n => ({ id: n.id, x: n.x, y: n.y, text: n.el.innerText, fontSize: n.fontSize })),
+                view,
+                pressureEnabled
+            };
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+            flashSaved();
+        } catch (err) {
+            console.warn('Auto-save failed:', err);
+        }
+    }
+    function flashSaved() {
+        saveIndicator.classList.add('show');
+        clearTimeout(flashSaved._t);
+        flashSaved._t = setTimeout(() => saveIndicator.classList.remove('show'), 900);
+    }
+    function loadState() {
+        let raw;
+        try { raw = localStorage.getItem(STORAGE_KEY); } catch (err) { return; }
+        if (!raw) return;
+        try {
+            const data = JSON.parse(raw);
+            strokes = Array.isArray(data.strokes) ? data.strokes : [];
+            if (data.view) Object.assign(view, data.view);
+            if (typeof data.pressureEnabled === 'boolean') pressureEnabled = data.pressureEnabled;
+            if (Array.isArray(data.textNotes)) {
+                data.textNotes.forEach(n => createTextNote(n.x, n.y, n.text, n.fontSize, n.id, false));
+            }
+        } catch (err) {
+            console.warn('Could not restore saved notebook:', err);
+        }
+    }
+
+    // ---------- Toolbar wiring ----------
+    const tools = {
+        ink: document.getElementById('tool-ink'),
+        eraser: document.getElementById('tool-eraser'),
+        text: document.getElementById('tool-text')
+    };
+
+    function setTool(toolName) {
+        currentTool = toolName;
+        Object.keys(tools).forEach(key => tools[key].classList.toggle('active', key === toolName));
+        updateBrushPreview();
+    }
+    tools.ink.addEventListener('click', () => setTool('ink'));
+    tools.eraser.addEventListener('click', () => setTool('eraser'));
+    tools.text.addEventListener('click', () => setTool('text'));
+
+    document.getElementById('action-clear').addEventListener('click', () => {
+        strokes = [];
+        textNotes.forEach(n => n.el.remove());
+        textNotes = [];
+        scheduleRender();
+        scheduleSave();
+    });
+
+    document.querySelectorAll('.color-dot').forEach(dot => {
+        dot.addEventListener('click', (e) => {
+            document.querySelectorAll('.color-dot').forEach(d => d.classList.remove('active'));
+            e.target.classList.add('active');
+            inkColor = e.target.getAttribute('data-color');
+            setTool('ink');
+        });
+    });
+
+    document.querySelectorAll('#ink-options .size-dot').forEach(dot => {
+        dot.addEventListener('click', (e) => {
+            document.querySelectorAll('#ink-options .size-dot').forEach(d => d.classList.remove('active'));
+            e.target.classList.add('active');
+            inkSize = parseFloat(e.target.getAttribute('data-size'));
+            setTool('ink');
+        });
+    });
+
+    document.querySelectorAll('#eraser-options .size-dot').forEach(dot => {
+        dot.addEventListener('click', (e) => {
+            document.querySelectorAll('#eraser-options .size-dot').forEach(d => d.classList.remove('active'));
+            e.target.classList.add('active');
+            eraserSize = parseFloat(e.target.getAttribute('data-size'));
+            setTool('eraser');
+        });
+    });
+
+    const pressureSwitch = document.getElementById('pressure-switch');
+    pressureSwitch.addEventListener('click', () => {
+        pressureEnabled = !pressureEnabled;
+        pressureSwitch.classList.toggle('active', pressureEnabled);
+        scheduleSave();
+    });
+
+    // ---------- Cursor preview: rAF-driven, transform-only (no layout writes) ----------
+    let pointerScreen = { x: -100, y: -100 };
+    let previewQueued = false;
+    function queuePreviewUpdate() {
+        if (previewQueued) return;
+        previewQueued = true;
+        requestAnimationFrame(() => {
+            previewQueued = false;
+            brushPreview.style.transform =
+                `translate3d(${pointerScreen.x}px, ${pointerScreen.y}px, 0) translate(-50%, -50%)`;
+        });
+    }
+    window.addEventListener('pointermove', (e) => {
+        pointerScreen.x = e.clientX;
+        pointerScreen.y = e.clientY;
+        queuePreviewUpdate();
+    }, { passive: true });
+
+    function updateBrushPreview() {
+        if (currentTool === 'ink') {
+            brushPreview.style.display = 'block';
+            const d = inkSize * view.scale;
+            brushPreview.style.width = `${d}px`;
+            brushPreview.style.height = `${d}px`;
+            brushPreview.style.backgroundColor = inkColor;
+            brushPreview.style.border = 'none';
+            container.style.cursor = 'none';
+        } else if (currentTool === 'eraser') {
+            brushPreview.style.display = 'block';
+            const d = eraserSize * view.scale;
+            brushPreview.style.width = `${d}px`;
+            brushPreview.style.height = `${d}px`;
+            brushPreview.style.backgroundColor = 'rgba(0,0,0,0.04)';
+            brushPreview.style.border = '1px dashed rgba(0,0,0,0.2)';
+            container.style.cursor = 'none';
+        } else {
+            brushPreview.style.display = 'none';
+            container.style.cursor = 'text';
+        }
+    }
+
+    // ---------- Drawing (pointer events, world-space) ----------
+    let isDrawing = false;
+    let activePointerId = null;
+
+    function capturePressure(e) {
+        if (!pressureEnabled) return 1;
+        if (e.pointerType === 'pen') return e.pressure || 0.5;
+        return e.pressure > 0 ? e.pressure : 0.5; // sane fallback for mouse/touch
+    }
+
+    canvas.addEventListener('pointerdown', (e) => {
+        if (gestureActive) return;
+        if (currentTool === 'text') {
+            if (e.target.className !== 'text-input-box') {
+                const w = screenToWorld(e.clientX, e.clientY);
+                createTextNote(w.x, w.y, '', 16, null, true);
+            }
+            return;
+        }
+        if (isDrawing) return; // ignore a second simultaneous pointer mid-stroke
+
+        isDrawing = true;
+        activePointerId = e.pointerId;
+        const w = screenToWorld(e.clientX, e.clientY);
+        activeStroke = {
+            id: genId(),
+            tool: currentTool,
+            color: currentTool === 'ink' ? inkColor : null,
+            baseWidth: currentTool === 'ink' ? inkSize : eraserSize,
+            pressureEnabled: currentTool === 'ink' && pressureEnabled,
+            points: [{ x: w.x, y: w.y, p: capturePressure(e) }]
+        };
+        strokes.push(activeStroke);
+    });
+
+    canvas.addEventListener('pointermove', (e) => {
+        if (!isDrawing || currentTool === 'text' || e.pointerId !== activePointerId) return;
+
+        const events = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
+        for (const ev of events) {
+            const w = screenToWorld(ev.clientX, ev.clientY);
+            activeStroke.points.push({ x: w.x, y: w.y, p: capturePressure(ev) });
+        }
+
+        ctx.setTransform(dpr * view.scale, 0, 0, dpr * view.scale, dpr * view.x, dpr * view.y);
+        drawActiveSegment();
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    });
+
+    const stopDrawing = (e) => {
+        if (e.pointerId !== activePointerId) return;
+        isDrawing = false;
+        activePointerId = null;
+        activeStroke = null;
+        scheduleSave();
+    };
+    window.addEventListener('pointerup', stopDrawing);
+    window.addEventListener('pointercancel', stopDrawing);
+
+    // ---------- Pan + Zoom (wheel / trackpad) ----------
+    function zoomAt(screenX, screenY, scaleFactor) {
+        const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, view.scale * scaleFactor));
+        const before = screenToWorld(screenX, screenY);
+        view.scale = newScale;
+        view.x = screenX - before.x * newScale;
+        view.y = screenY - before.y * newScale;
+    }
+
+    // Lightweight inertia so panning decelerates instead of stopping dead.
+    let panVelocity = { x: 0, y: 0 };
+    let lastWheelTime = 0;
+    let inertiaRunning = false;
+
+    function runInertia() {
+        if (Math.abs(panVelocity.x) < 0.05 && Math.abs(panVelocity.y) < 0.05) {
+            inertiaRunning = false;
+            scheduleSave();
+            return;
+        }
+        view.x += panVelocity.x;
+        view.y += panVelocity.y;
+        panVelocity.x *= 0.92;
+        panVelocity.y *= 0.92;
+        scheduleRender();
+        requestAnimationFrame(runInertia);
+    }
+
+    window.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        if (isDrawing) return; // never shift the view mid-stroke
+
+        if (e.ctrlKey || e.metaKey) {
+            // Trackpad pinch is reported as wheel + ctrlKey in Chrome/Safari/Firefox.
+            zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * 0.01));
+        } else {
+            const now = performance.now();
+            const dt = Math.max(8, now - lastWheelTime);
+            lastWheelTime = now;
+            view.x -= e.deltaX;
+            view.y -= e.deltaY;
+            panVelocity.x = -e.deltaX * (16 / dt) * 0.6;
+            panVelocity.y = -e.deltaY * (16 / dt) * 0.6;
+            if (!inertiaRunning) {
+                inertiaRunning = true;
+                requestAnimationFrame(runInertia);
+            }
+        }
+        scheduleRender();
+        scheduleSave();
+    }, { passive: false });
+
+    // ---------- Touch pinch-to-zoom / two-finger pan ----------
+    const activeTouches = new Map();
+    let gestureActive = false;
+    let lastPinchDist = 0;
+    let lastPinchMid = { x: 0, y: 0 };
+
+    function touchDistAndMid() {
+        const pts = Array.from(activeTouches.values());
+        const dx = pts[0].x - pts[1].x, dy = pts[0].y - pts[1].y;
+        return { dist: Math.hypot(dx, dy), mid: { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 } };
+    }
+
+    canvas.addEventListener('pointerdown', (e) => {
+        if (e.pointerType !== 'touch') return;
+        activeTouches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (activeTouches.size === 2) {
+            gestureActive = true;
+            isDrawing = false;       // stop single-finger stroke, keep what was already drawn
+            activeStroke = null;
+            activePointerId = null;
+            const { dist, mid } = touchDistAndMid();
+            lastPinchDist = dist; lastPinchMid = mid;
+        }
+    }, { capture: true });
+
+    canvas.addEventListener('pointermove', (e) => {
+        if (e.pointerType !== 'touch' || !activeTouches.has(e.pointerId)) return;
+        activeTouches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (activeTouches.size === 2 && gestureActive) {
+            const { dist, mid } = touchDistAndMid();
+            if (lastPinchDist > 0) zoomAt(mid.x, mid.y, dist / lastPinchDist);
+            view.x += mid.x - lastPinchMid.x;
+            view.y += mid.y - lastPinchMid.y;
+            lastPinchDist = dist; lastPinchMid = mid;
+            scheduleRender();
+        }
+    }, { capture: true });
+
+    function endTouch(e) {
+        if (!activeTouches.has(e.pointerId)) return;
+        activeTouches.delete(e.pointerId);
+        if (activeTouches.size < 2) {
+            gestureActive = false;
+            scheduleSave();
+        }
+    }
+    window.addEventListener('pointerup', endTouch, { capture: true });
+    window.addEventListener('pointercancel', endTouch, { capture: true });
+
+    // ---------- Text notes (world-space, positioned via transform) ----------
+    function createTextNote(worldX, worldY, text, fontSize, existingId, focus) {
+        const el = document.createElement('div');
+        el.contentEditable = true;
+        el.className = 'text-input-box';
+        el.innerText = text || '';
+        container.appendChild(el);
+
+        const note = { id: existingId || genId(), x: worldX, y: worldY, fontSize: fontSize || 16, el };
+        textNotes.push(note);
+        positionTextNote(note);
+
+        if (focus) setTimeout(() => el.focus(), 20);
+
+        el.addEventListener('input', scheduleSave);
+        el.addEventListener('blur', () => {
+            if (!el.innerText.trim()) {
+                el.remove();
+                textNotes = textNotes.filter(n => n !== note);
+                scheduleSave();
+            } else {
+                el.contentEditable = false;
+                el.style.borderColor = 'transparent';
+                el.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    el.contentEditable = true;
+                    el.style.borderColor = 'rgba(0, 122, 255, 0.4)';
+                    el.focus();
+                });
+            }
+        });
+        return note;
+    }
+
+    function positionTextNote(note) {
+        const s = worldToScreen(note.x, note.y);
+        note.el.style.transform = `translate3d(${s.x}px, ${s.y}px, 0) scale(${view.scale})`;
+    }
+    function updateTextNotePositions() {
+        textNotes.forEach(positionTextNote);
+    }
+
+    // ---------- Init ----------
+    loadState();
+    setupCanvas();
+    setTool('ink');
+    pressureSwitch.classList.toggle('active', pressureEnabled);
+    scheduleRender();
+})();
+</script>
+</body>
+</html>
